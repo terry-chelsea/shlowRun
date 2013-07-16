@@ -30,6 +30,12 @@ MYDEBUG *my_debug_ptr = NULL;
         va_end(pArgList);\
 }while(0)
 
+#define MY_FILE_NAME_LENGTH 256                 //日志文件的最大长度
+#define MY_MAX_LINE         512                 //一行缓冲区的最大长度
+#define COUT_ONE_LINE       16                  //打印二进制的时候一行的字符数
+#define ADDR_LENGTH         16                  //IP地址的最大字节数
+#define BIN_CODE_LENGTH     (COUT_ONE_LINE * 2 + COUT_ONE_LINE / 2)
+
 /* 将格式化字符串输入到一个缓冲区去中...
  * 参数 resBuf 指定输出缓冲区
  * 参数 nSize 指定输出缓冲区的大小
@@ -80,18 +86,22 @@ void beginDebug(char *appName , OUT_TYPE type , LEVEL_ level)
     else 
         length = mySprintf(myFileName , MY_FILE_NAME_LENGTH , "%s_debug_%d_%d_%d" , 
                 appName , tm_.tm_year + 1900 , tm_.tm_mon + 1 , tm_.tm_mday);
-    myFileName[length] = '\0';
+    myFileName[length ++] = '\0';
+    memcpy(debug->file_name , myFileName , length);
 
+    //if debug type is undefined , use OUT_SCR
     if(type >= OUT_SCR && type <= OUT_BOTH)
         debug->type = type;
     else 
         debug->type = OUT_SCR;
 
+    //if debug level is undefined , use WARNING...
     if(level >= DEBUG && type <= WARNING)
         debug->level = level;
     else 
         debug->level = WARNING;
 
+    //do while until open this file success...do append to file...
     if(debug->type >= OUT_FILE)
         while((debug->fp = fopen(myFileName , "a+")) == NULL);    //保证总是执行成功
     
@@ -116,7 +126,10 @@ void endDebug()
         return ;
 
     if(my_debug_ptr->type >= OUT_FILE)
+    {
         fclose(my_debug_ptr->fp);
+        my_debug_ptr->fp = NULL;
+    }
     free(my_debug_ptr);
 
     my_debug_ptr = NULL;
@@ -127,22 +140,56 @@ void set_output_type(OUT_TYPE type)
     if(NULL == my_debug_ptr)
         return ;
 
+    OUT_TYPE old_type = my_debug_ptr->type;
     //here open new file...
-    if(type >= OUT_SCR && type <= OUT_BOTH)
-        my_debug_ptr->type = type;
-    else 
-        my_debug_ptr->type = OUT_SCR;
+    if(!(type >= OUT_SCR && type <= OUT_BOTH))
+        type = OUT_SCR;
+    //from file to screen , close old file ...
+    if(old_type >= OUT_FILE && type == OUT_SCR)
+    {
+        fclose(my_debug_ptr->fp);
+        my_debug_ptr->fp = NULL;
+    }
+    else if(old_type == OUT_SCR && type >= OUT_FILE)
+    {
+        //this means no debug file infomation...
+        if(my_debug_ptr->file_name[0] == '\0')
+        {
+            int length = 0;
+            time_t now = time(NULL);
+            struct tm tm_;
+            localtime_r(&now , &tm_);
+            length = mySprintf(my_debug_ptr->file_name , MY_FILE_NAME_LENGTH , "%s_%d_%d_%d" , 
+                    DEFAULT_NAME , tm_.tm_year + 1900 , tm_.tm_mon + 1 , tm_.tm_mday);
+            
+            my_debug_ptr->file_name[length ++] = '\0';
+        }
+        while((my_debug_ptr->fp = fopen(my_debug_ptr->file_name , "a+")) == NULL);    //保证总是执行成功
+    }
+    my_debug_ptr->type = type;
+    
+#define to_string(type)   (OUT_BOTH == type ? " FILE & SCREEN " :  \
+        (OUT_FILE == type ?  " FILE " : " SCREEN "))
+
+    printDebugInfo(strings[INFO]); 
+    DEBUG_OUTPUT(1 , "Change debug output level from %s to %s !!!" , to_string(old_type) , to_string(type));
 }
 
 void set_debug_level(LEVEL_ level)
 {
     if(NULL == my_debug_ptr)
+    {
         return ;
+    }
 
-    if(level >= DEBUG && level <= WARNING)
+    LEVEL_  old_level = my_debug_ptr->level;
+    if(level >= DEBUG && level <= MAX_LEVEL)
         my_debug_ptr->level = level;
     else 
         my_debug_ptr->level = WARNING;
+
+    printDebugInfo(strings[INFO]); 
+    DEBUG_OUTPUT(1 , "Change debug level from %s to %s !!!" , strings[old_level] , strings[my_debug_ptr->level]); 
 }
 
 static void do_print_debug_info(char *msgBuf , char *timeBuf)
@@ -328,7 +375,7 @@ int main(int argc , char *argv[])
 {
     char buf[128] = "this is just a line for test the out put thing in bin and ascii code...";
 
-    START_DEBUG(argv[0] , 0 , 3);
+    START_DEBUG(argv[0] , 1 , 0);
 
     DEBUG_BIN_CODE(buf , strlen(buf));
 
@@ -350,11 +397,12 @@ int main(int argc , char *argv[])
     errno = EAGAIN;
     LOG_SYSCALL_TIME("this errno is EAGAIN");
 
-    SET_DEBUG_LEVEL(4);
+    SET_DEBUG_LEVEL(3);
 
     LOG_WARNING_TIME("After set debug level to more than warning...");
     LOG_ERROR_TIME("Now this error can be printed...");
-
+    
+    LOG_FATAL("I has to say goodbye...");
     FINISH_DEBUG();
 
     return 0;
