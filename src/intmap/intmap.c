@@ -197,8 +197,7 @@ static int expand_intmap(Intmap *imap)
 #define CLEAR_BIT(value , index) \
     (*value) &= ~(0x1UL << index)
 
-//#define CHECK_SET(value , index)  \
-//    (*value) & (0x1UL << index)
+//#define CHECK_SET(value , index)      (*value) & (0x1UL << index)
 unsigned long CHECK_SET(unsigned long *value , int index)
 {
     return (*value) & (0x1UL << index);
@@ -354,7 +353,7 @@ void* intmap_get_value(Intmap *imap , int index)
     int bitmap_index = index / LONG_SIZE;
     int in_index = index % LONG_SIZE;
 //    if(!CHECK_SET(imap->bitmap + bitmap_index , in_index))
-    if(!((imap->bitmap)[bitmap_index] & (0x1UL << index)))
+    if(!((imap->bitmap)[bitmap_index] & (0x1UL << in_index)))
         return NULL;
 
     return imap->array[index];
@@ -376,7 +375,7 @@ int intmap_clear_value(Intmap *imap , int index)
     int bitmap_index = index / LONG_SIZE;
     int in_index = index % LONG_SIZE;
 //    if(!CHECK_SET(imap->bitmap + bitmap_index , in_index))
-    if(!((imap->bitmap)[bitmap_index] & (0x1UL << index)))
+    if(!((imap->bitmap)[bitmap_index] & (0x1UL << in_index)))
         return -1;
 
     clear_value_from_intmap(imap , index);
@@ -702,6 +701,8 @@ int main(int argc , char *argv[])
     
     destory_intmap(imap);
     FINISH_DEBUG();
+
+    return 0;
 }
 
 #endif

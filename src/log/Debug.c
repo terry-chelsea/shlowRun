@@ -293,7 +293,6 @@ static int doOutputBin(char *outputBuffer , int maxSize , char *resBuffer , int 
 {
 #define IS_PRINTFUL(ch)  ((ch) >= ' ' && (ch) <= '~')
 
-    int putCount = 0;
     char addrBuffer[ADDR_LENGTH];             //保存每次打印的地址信息
     int  addrCount = 0;              //地址字符串的长度
     char binBuffer[BIN_CODE_LENGTH];             //打印这些字符的ASCII码的信息
@@ -339,7 +338,6 @@ static int doOutputBin(char *outputBuffer , int maxSize , char *resBuffer , int 
 void binDebugOutput(void *structBuffer , int nSize)
 {
     char outputBuf[MY_MAX_LINE];
-    int i = 0;
     int beginAddr = 0;
     int leftCount = nSize;
     char *sBuffer = (char *)structBuffer;
