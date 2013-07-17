@@ -37,13 +37,12 @@ typedef struct map
     int  length;    //current length(used) of this array...
     int  size;      //current size(used + unused) of this array...
     int  last;      //last unused index , this likely cache...
-    int  start_index;    //change given index to inside index...
-    int  head_size;    //those two field used while check bitmap...
-    int  tail_size;
     //next two fileds is allocated together , and their size is 
     //related to size filed...
     unsigned long *bitmap;    //use bitmap to find next index...
     unsigned long *second_bitmap;    //second index of bitmap...
+    int second_bitmap_size;
+    int bitmap_size;
 }Intmap;
 
 Intmap *create_intmap(int init_sz);
@@ -52,7 +51,7 @@ int   intmap_put_value(Intmap *imap , void *value);
 
 void *intmap_get_value(Intmap *imap , int index);
 
-void intmap_clear_value(Intmap *imap , int index);
+int intmap_clear_value(Intmap *imap , int index);
 
 void shrink_intmap(Intmap *imap);
 
@@ -61,5 +60,7 @@ int  intmap_length(Intmap *imap);
 int  intmap_size(Intmap *imap);
 
 int  intmap_used_memory(Intmap *imap);
+
+void destory_intmap(Intmap *imap);
 
 #endif
