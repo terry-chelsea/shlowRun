@@ -19,13 +19,14 @@
 #include <string.h>
 
 #define LONG_SIZE     (sizeof(unsigned long) * 8)
-#define ALIGN_SIZE    16
+#define ALIGN_SIZE    64
 #define INIT_SIZE     64
 #define ALIGN_TO(sz)  ((sz) % ALIGN_SIZE ?  \
         ((sz) & ~(ALIGN_SIZE - 1)) + ALIGN_SIZE : \
         sz)
 #define MAX_EXPAND_SIZE   4096
 #define EXPAND_STEP       256
+#define SHRINK_SIZE       1024
 
 #define BITMAP_SIZE(sz)    ((sz) % LONG_SIZE ? \
         (sz) / LONG_SIZE + 1 : (sz) / LONG_SIZE)
@@ -64,7 +65,6 @@ static int allocate_intmap(Intmap *imap , int sz)
     imap->array = all;
     imap->length = 0;
     imap->size = sz;
-    imap->last = -1;
     imap->second_bitmap = bmp;
     imap->bitmap = bmp + second_bitmap_size;
     imap->second_bitmap_size = second_bitmap_size;
@@ -81,7 +81,6 @@ Intmap *create_intmap(int init_sz)
     if(init_sz > 0)
         init_sz = ALIGN_TO(init_sz);
 
-    LOG_INFO("create initmap with init size : %d" , init_sz);
     Intmap *imap = (Intmap *)calloc(1 , sizeof(Intmap));
     if(NULL == imap)
     {
@@ -94,7 +93,6 @@ Intmap *create_intmap(int init_sz)
         imap->array = NULL;
         imap->length = 0;
         imap->size = 0;
-        imap->last = -1;
         imap->bitmap = imap->second_bitmap = NULL;
         imap->bitmap_size = imap->second_bitmap_size = 0;
         return imap;
@@ -110,6 +108,7 @@ Intmap *create_intmap(int init_sz)
 }
 
 //change intmap size , no matter expand or shrink...
+//if memory error , this function can back to previous state...
 static int change_intmap_size(Intmap *imap , int new_size , int flags)
 {
     //first allocate bitmap , if this failed , we can back to previout state...
@@ -133,7 +132,7 @@ static int change_intmap_size(Intmap *imap , int new_size , int flags)
     }
     imap->array = new_array;
     imap->size = new_size;
-    imap->last = -1;
+    //find the less size of previous size and after size of bitmap...
     int cp_size = (flags ? imap->second_bitmap_size : second_bitmap_size);
     memcpy(tmp_bm , imap->second_bitmap , cp_size * sizeof(unsigned long));
     cp_size = (flags ? imap->bitmap_size : bitmap_size);
@@ -302,18 +301,8 @@ int intmap_put_value(Intmap *imap , void *value)
         return -1;
     }
 
-    int last_index = imap->last;
-    //check last free index firstly...
-    if(last_index >= 0)
-    {
-        insert_value_to_bitmap(imap , last_index , value);
-        //clear last index...
-        imap->last = -1;
-        return last_index;
-    }
-
     //then check second bitmap and bitmap...
-    last_index = get_unused_index(imap);
+    int last_index = get_unused_index(imap);
     //this means we should increase the length of array...
     int last_size = imap->size;
     if(last_index < 0)
@@ -352,35 +341,12 @@ void* intmap_get_value(Intmap *imap , int index)
     
     int bitmap_index = index / LONG_SIZE;
     int in_index = index % LONG_SIZE;
+    //this is a bug , if use CHECK_SET implemented with #define will cause unknown error...
 //    if(!CHECK_SET(imap->bitmap + bitmap_index , in_index))
     if(!((imap->bitmap)[bitmap_index] & (0x1UL << in_index)))
         return NULL;
 
     return imap->array[index];
-}
-
-int intmap_clear_value(Intmap *imap , int index)
-{
-    if(NULL == imap)
-    {
-        LOG_WARNING("Can not clear value in a NULL Intmap...");
-        return -1;
-    }
-    if(imap->size <= index)
-    {
-        LOG_WARNING("Clear value : current size %d and request index %d..." , imap->size , index);
-        return -1;
-    }
-    
-    int bitmap_index = index / LONG_SIZE;
-    int in_index = index % LONG_SIZE;
-//    if(!CHECK_SET(imap->bitmap + bitmap_index , in_index))
-    if(!((imap->bitmap)[bitmap_index] & (0x1UL << in_index)))
-        return -1;
-
-    clear_value_from_intmap(imap , index);
-    imap->last = index;
-    return 0;
 }
 
 static int shrink_intmap_inside(Intmap *imap , int shrink_size)
@@ -419,7 +385,7 @@ static int check_empty_slots(Intmap *imap)
 }
 
 //you can only shrink memory from tail....
-void shrink_intmap(Intmap *imap)
+static void shrink_intmap(Intmap *imap)
 {
     if(NULL == imap)
     {
@@ -432,13 +398,41 @@ void shrink_intmap(Intmap *imap)
 
     if(empty_size == 0)
     {
-        LOG_INFO("There is no empty slots to shrink...");
         return ;
     }
 
     if(shrink_intmap_inside(imap , empty_size) < 0)
         LOG_WARNING("shrink intmap %d size failed ..." , empty_size * LONG_SIZE);
 }
+
+int intmap_clear_value(Intmap *imap , int index)
+{
+    if(NULL == imap)
+    {
+        LOG_WARNING("Can not clear value in a NULL Intmap...");
+        return -1;
+    }
+    if(imap->size <= index)
+    {
+        LOG_WARNING("Clear value : current size %d and request index %d..." , imap->size , index);
+        return -1;
+    }
+    
+    int bitmap_index = index / LONG_SIZE;
+    int in_index = index % LONG_SIZE;
+    //this is the same with upper...
+//    if(!CHECK_SET(imap->bitmap + bitmap_index , in_index))
+    if(!((imap->bitmap)[bitmap_index] & (0x1UL << in_index)))
+        return -1;
+
+    clear_value_from_intmap(imap , index);
+
+    if(imap->size > SHRINK_SIZE && ((imap->size >> 2) * 3) > imap->length)
+        shrink_intmap(imap);
+
+    return 0;
+}
+
 
 int intmap_length(Intmap *imap)
 {
@@ -476,7 +470,10 @@ void destory_intmap(Intmap *imap)
     if(imap->length != 0)
         LOG_WARNING("There are %d elements left when destory Intmap !!!" , imap->length);
     if(NULL == imap->array)
+    {
+        free(imap);
         return ;
+    }
 
     free(imap->array);
     imap->array = NULL;
@@ -485,6 +482,14 @@ void destory_intmap(Intmap *imap)
     free(imap);
     imap = NULL;
 }
+
+
+
+
+
+
+
+
 
 
 
@@ -602,14 +607,6 @@ int main(int argc , char *argv[])
     LOG_INFO("Current intmap length : %d ..." , intmap_length(imap));
     LOG_INFO("Current memory allocate : %d\n" , intmap_used_memory(imap));
 
-    shrink_intmap(imap);
-
-    LOG_INFO("After shrink intmap ...");
-    LOG_INFO("Current intmap size : %d ..." , intmap_size(imap));
-    LOG_INFO("Current intmap length : %d ..." , intmap_length(imap));
-    LOG_INFO("Current memory allocate : %d\n" , intmap_used_memory(imap));
-
-
     //next start random test...
     //put TEST_TIMES and then clear TEST_TIMES / 2 times...and then reput TEST_TIMES times...
 #define TEST_TIMES 10000
@@ -651,13 +648,6 @@ int main(int argc , char *argv[])
     LOG_INFO("Current intmap length : %d ..." , intmap_length(imap));
     LOG_INFO("Current memory allocate : %d\n" , intmap_used_memory(imap));
 
-    shrink_intmap(imap);
-
-    LOG_INFO("After second shrink intmap ...");
-    LOG_INFO("Current intmap size : %d ..." , intmap_size(imap));
-    LOG_INFO("Current intmap length : %d ..." , intmap_length(imap));
-    LOG_INFO("Current memory allocate : %d\n" , intmap_used_memory(imap));
-
     for(i = TEST_TIMES ; i < (TEST_TIMES << 1) ; ++ i)
     {
         int value = rand() % MAX_NUMBER;
@@ -676,12 +666,6 @@ int main(int argc , char *argv[])
     LOG_INFO("Current intmap length : %d ..." , intmap_length(imap));
     LOG_INFO("Current memory allocate : %d\n" , intmap_used_memory(imap));
 
-    shrink_intmap(imap);
-
-    LOG_INFO("After third shrink intmap ...");
-    LOG_INFO("Current intmap size : %d ..." , intmap_size(imap));
-    LOG_INFO("Current intmap length : %d ..." , intmap_length(imap));
-    LOG_INFO("Current memory allocate : %d\n" , intmap_used_memory(imap));
     for(i = 0 ; i < (TEST_TIMES << 1) ; ++ i)
     {
         int rand_index = random_index[i];
@@ -703,6 +687,225 @@ int main(int argc , char *argv[])
     FINISH_DEBUG();
 
     return 0;
+}
+
+#endif
+
+
+#ifdef PRO_TEST
+
+typedef struct item
+{
+    int index;
+    void *value;
+}ITEM;
+
+
+#define MAP_TEST     (102400)
+#define CLEAR_TIMES  (MAP_TEST >> 1)
+#define GET_TIMES    10
+#define MAX_VALUE    1024000
+
+ITEM all_infos[MAP_TEST];
+int clear_indexs[CLEAR_TIMES];
+
+int fetch_value(Intmap *imap , int times)
+{
+    int i = 0;
+    for(i = 0 ; i < times ; ++ i)
+    {
+        int sub_index = rand() % MAP_TEST;
+        int index = all_infos[sub_index].index;
+        if(index == -1)
+        {
+            -- i;
+            continue ;
+        }
+        
+        void *value = intmap_get_value(imap , index);
+        if(value != all_infos[sub_index].value)
+        {
+            LOG_ERROR("error happened when fetch value of index %d ..." , sub_index);
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+//put MAP_TEST times ...
+//then get every value GET_TIMES times...
+//then clear CLEAR_TIMES value random...
+//then get last every value GET_TIMES times...
+//then put CLEAR_TIMES again...
+//then get last every value GET_TIMES times...
+//then clear all value...
+//destory map...
+
+#define START_PTR   ((void *)0X0)
+
+#include <sys/time.h>
+#define START_TIME(start)  gettimeofday(&start , NULL)
+#define END_TIME(end) gettimeofday(&end , NULL);
+//    printf("From start to end , Cost %lf millseconds\n" , msec); 
+#define CALCULATE_TIME(start , end) do{ \
+    double gap = 1000000 * (end.tv_sec - start.tv_sec) + (end.tv_usec - start.tv_usec); \
+    double msec = gap / 1000; \
+    printf("%lf  " , msec); \
+}while(0)
+
+int intmap_performance_test()
+{
+    struct timeval start , end;
+    struct timeval all_start , all_end;
+
+    START_TIME(all_start);
+    srand(10000283);
+    Intmap *imap = create_intmap(0);
+    if(NULL == imap)
+    {
+        LOG_ERROR("Create intmap failed ...");
+        return -1;
+    }
+//    LOG_INFO("Create map success...");
+
+    START_TIME(start);
+
+    int i = 0;
+    for(i = 0 ; i < MAP_TEST ; ++ i)
+    {
+        void *value = (void *)(rand() % MAX_VALUE); 
+        int index = intmap_put_value(imap , value);
+        if(index < 0)
+        {
+            LOG_ERROR("error happened when first put...");
+            return -1;
+        }
+        all_infos[i].index = index;
+        all_infos[i].value = value;
+    }
+//    LOG_INFO("Put %d item to map success..." , MAP_TEST);
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+    START_TIME(start);
+
+    if(fetch_value(imap , GET_TIMES * MAP_TEST) < 0)
+        return -1;
+
+//    LOG_INFO("Fetch value %d times success ..." , GET_TIMES * MAP_TEST);
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+    START_TIME(start);
+    
+    for(i = 0 ; i < CLEAR_TIMES ; ++ i)
+    {
+        int sub_index = rand() % MAP_TEST;
+        int index = all_infos[sub_index].index;
+        if(index == -1)
+        {
+            -- i;
+            continue ;
+        }
+        if(intmap_clear_value(imap , index) < 0)
+        {
+            LOG_ERROR("error happened when clear value of index : %d ..." , index);
+            return -1;
+        }
+        clear_indexs[i] = sub_index;
+        all_infos[sub_index].index = -1;
+        all_infos[sub_index].value = NULL;
+    }
+
+//    LOG_INFO("Clear value %d times success ..." , CLEAR_TIMES);
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+    START_TIME(start);
+
+    if(fetch_value(imap , CLEAR_TIMES * GET_TIMES) < 0)
+        return -1;
+
+//    LOG_INFO("Fetch value %d times success ..." , GET_TIMES * CLEAR_TIMES);
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+    START_TIME(start);
+
+    for(i = 0 ; i < CLEAR_TIMES ; ++ i)
+    {
+        int sub_index = clear_indexs[i];
+        void *value = (void *)(rand() % MAX_VALUE);
+        int index = intmap_put_value(imap , value);
+        if(index < 0)
+        {
+            LOG_ERROR("error happened when second put ...");
+            return -1;
+        }
+        all_infos[sub_index].index = index;
+        all_infos[sub_index].value = value;
+    }
+
+//    LOG_INFO("Reput item %d times success ..." , CLEAR_TIMES);
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+    START_TIME(start);
+
+    if(fetch_value(imap , MAP_TEST * GET_TIMES) < 0)
+        return -1;
+
+//    LOG_INFO("Fetch value %d times success ..." , GET_TIMES * MAP_TEST);
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+    START_TIME(start);
+
+    for(i = 0 ; i < MAP_TEST ; ++ i)
+    {
+        int index = all_infos[i].index;
+//        LOG_WARNING("start clear item %d i is %d ..." , index , i);
+        if(intmap_clear_value(imap , index) < 0)
+        {
+            LOG_ERROR("error happened when second clear of index %d ..." , index);
+            return -1;
+        }
+
+//        LOG_WARNING("clear index %d success..." , index);
+
+        all_infos[i].index = -1;
+        all_infos[i].value = NULL;
+    }
+//    LOG_INFO("Clear all items success...");
+
+    END_TIME(end);
+    CALCULATE_TIME(start , end);
+
+    destory_intmap(imap);
+    imap = NULL;
+    
+//    LOG_INFO("All test finish...");
+
+    END_TIME(all_end);
+    CALCULATE_TIME(all_start , all_end);
+
+    printf("\n");
+
+    return 0;
+}
+
+int main()
+{
+    START_DEBUG(NULL , 0 , 0);
+
+    if(intmap_performance_test() < 0)
+    {
+        LOG_ERROR("preformance test failed ...");
+    }
+    else 
+        LOG_INFO("Preformance test success ...");
+    FINISH_DEBUG();
 }
 
 #endif
