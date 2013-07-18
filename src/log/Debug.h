@@ -30,6 +30,7 @@
  * 使用方式和标准的格式化输出一致
  */
 
+//you should compile it with C compiler , because C++ will change C string to string , some Warnings...
 
 typedef enum 
 {
