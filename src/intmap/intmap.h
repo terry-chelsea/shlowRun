@@ -31,18 +31,7 @@
  */
 
 
-typedef struct map
-{
-    void **array;   //the array of all items...
-    int  length;    //current length(used) of this array...
-    int  size;      //current size(used + unused) of this array...
-    //next two fileds is allocated together , and their size is 
-    //related to size filed...
-    unsigned long *bitmap;    //use bitmap to find next index...
-    unsigned long *second_bitmap;    //second index of bitmap...
-    int second_bitmap_size;
-    int bitmap_size;
-}Intmap;
+typedef struct map Intmap;
 
 Intmap *create_intmap(int init_sz);
 

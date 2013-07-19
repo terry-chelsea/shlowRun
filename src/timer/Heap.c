@@ -18,7 +18,28 @@
 #include <string.h>
 #include "Heap.h"
 
+struct item
+{
+    UINT64  weight;
+    void *  value;
+};
+
+struct heap
+{
+    //store heap in a dynamic array ...
+    Item *array;
+    //array size...
+    int  size;
+    //current used size , should the first length items in array...
+    int  length;
+    int  free_counter;
+    //max or min in the root , default is min is the root...
+    int type;
+};
+
 #define LOG_ERROR(format , ...)  printf(format , ##__VA_ARGS__)
+#define LOG_INFO(format , ...)  printf(format , ##__VA_ARGS__)
+
 #define MAX_APPEND_SIZE  4096   //do increase by APPEND_STEP when size is bigger than it..
 #define APPEND_STEP      256    //otherwise , increase by double...
 #define MIN_SHRINK_SIZE  256    //do shrink when unused size is bigger than it...
@@ -364,7 +385,7 @@ void destory_heap(Heap *hp)
         return ;
 
     if(hp->length != 0)
-        LOG_ERROR("There are %d items when destory heap ..." , hp->length);
+        LOG_INFO("There are %d items when destory heap ...\n" , hp->length);
 
     if(hp->array != NULL)
     {
@@ -384,21 +405,36 @@ int get_heap_type(Heap *hp)
     return -1;
 }
 
-#ifdef TEST_HEAP
-
-static void display_heap(Heap *hp)
+void display_heap(Heap *hp)
 {
-    printf("Heap %p is a %s heap : \n" , hp , 
+    LOG_INFO("Heap %p is a %s heap : \n" , hp , 
             ((_MAX_ROOT == hp->type) ? "MAX" : "MIN"));
-    printf("Heap current size : %d\n" , hp->size);
-    printf("Heap current length : %d\n" , hp->length);
-    printf("All elements weight displays : \n");
+    LOG_INFO("Heap current size : %d\n" , hp->size);
+    LOG_INFO("Heap current length : %d\n" , hp->length);
+    LOG_INFO("All elements weight displays : \n");
     int i = 0;
     for(i = 0 ; i < hp->length ; ++ i)
         printf("%llu  " , (hp->array[i]).weight);
 
     printf("\n");
 }
+
+void do_heap_sort(Heap *hp)
+{
+    Item *head = hp->array;
+    int cur_length = hp->length;
+    int i = 0;
+    for(i = 0 ; i < cur_length ; ++ i)
+    {
+        SWAP_ITEM(head , head + hp->length - 1);
+        -- hp->length;
+        adjust_heap(hp , head , ADJUST_DOWN);
+    }
+
+    hp->length = cur_length;
+}
+
+#ifdef TEST_HEAP
 
 static int check_state(Heap *hp)
 {
@@ -445,23 +481,6 @@ static int check_state(Heap *hp)
         printf("Current size : %d and current length : %d\n" , hp->size , hp->length);
     return -1;
 }
-
-#ifdef HEAP_SORT
-static void do_heap_sort(Heap *hp)
-{
-    Item *head = hp->array;
-    int cur_length = hp->length;
-    int i = 0;
-    for(i = 0 ; i < cur_length ; ++ i)
-    {
-        SWAP_ITEM(head , head + hp->length - 1);
-        -- hp->length;
-        adjust_heap(hp , head , ADJUST_DOWN);
-    }
-
-    hp->length = cur_length;
-}
-#endif
 
 #define MAX_VALUE  1000
 #define TEST_TIME  10240

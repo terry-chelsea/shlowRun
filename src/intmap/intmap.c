@@ -18,6 +18,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct map
+{
+    void **array;   //the array of all items...
+    int  length;    //current length(used) of this array...
+    int  size;      //current size(used + unused) of this array...
+    //next two fileds is allocated together , and their size is 
+    //related to size filed...
+    unsigned long *bitmap;    //use bitmap to find next index...
+    unsigned long *second_bitmap;    //second index of bitmap...
+    int second_bitmap_size;
+    int bitmap_size;
+};
+
 #define LONG_SIZE     (sizeof(unsigned long) * 8)
 #define ALIGN_SIZE    64
 #define INIT_SIZE     64

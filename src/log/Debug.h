@@ -59,13 +59,15 @@ static char *strings[] =
     "[FATAL]"
 };
 
-typedef struct 
+struct debug_union
 {
     LEVEL_   level;
     OUT_TYPE type;
     FILE     *fp;
     char     file_name[256];
-}MYDEBUG;
+};
+
+typedef struct debug_union MYDEBUG;
 
 extern MYDEBUG *my_debug_ptr;
 

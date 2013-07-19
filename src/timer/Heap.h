@@ -19,29 +19,14 @@
 #ifndef _H_HEAP_INSIDE_H_
 #define _H_HEAP_INSIDE_H_
 
-typedef unsigned long long int UINT64;
-
-typedef struct item
-{
-    UINT64  weight;
-    void *  value;
-}Item;
-
 #define _MAX_ROOT  0
 #define _MIN_ROOT  1
 
-typedef struct heap
-{
-    //store heap in a dynamic array ...
-    Item *array;
-    //array size...
-    int  size;
-    //current used size , should the first length items in array...
-    int  length;
-    int  free_counter;
-    //max or min in the root , default is min is the root...
-    int type;
-}Heap;
+typedef unsigned long long int UINT64;
+
+typedef struct item Item;
+
+typedef struct heap Heap;
 
 Heap *create_heap(int init_sz , int type);
 
@@ -56,6 +41,10 @@ void modify_on_heap(Heap *hp , UINT64 weight , void *value , UINT64 new_weight);
 void *get_root_value(Heap *hp);
 
 void *get_and_remove_root(Heap *hp);
+
+void do_heap_sort(Heap *hp);
+
+void display_heap(Heap *hp);
 
 void destory_heap(Heap *hp);
 
