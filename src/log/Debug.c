@@ -22,6 +22,16 @@
 #include <time.h>
 #include <sys/time.h>
 
+char *strings[] = 
+{
+    "[DEBUG]" , 
+    "[INFO]" , 
+    "[WARNING]" ,
+    "[ERROR]" ,
+    "[SYSCALL]" , 
+    "[FATAL]"
+};
+
 MYDEBUG *my_debug_ptr = NULL;
 #define DO_ARG(resBuf , size , count , format) do{\
         va_list pArgList; \
@@ -61,10 +71,11 @@ static void getTime(char *timeBuf , int nSize)
     struct tm pTime;
     localtime_r(&(ntime.tv_sec) , &pTime);
 
-    int nLength = mySprintf(timeBuf , nSize , "%d:%d:%d:%d" , 
-            pTime.tm_year + 1900 , pTime.tm_mon + 1 , pTime.tm_mday , ntime.tv_usec);
+    int nLength = mySprintf(timeBuf , nSize , "%d-%d-%d %d:%d:%d:%ld" , 
+            pTime.tm_year + 1900 , pTime.tm_mon + 1 , pTime.tm_mday  ,
+            pTime.tm_hour , pTime.tm_min , pTime.tm_sec, (long)(ntime.tv_usec));
 
-    timeBuf[nLength - 1] = '\0';
+    timeBuf[nLength] = '\0';
 }
 
 #define DEFAULT_NAME "unknow_proc_debug"

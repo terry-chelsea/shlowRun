@@ -19,9 +19,11 @@
 #ifndef _H_MY_DEBUG_H_
 #define _H_MY_DEBUG_H_
 
-#include<stdarg.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
+#include <errno.h>
 
 /* 使用方式 ：使用START_DEBUG宏定义初始化启动调试，参数是特定的文件名和日志类型
  * 使用结束需要调用FINISH_DEBUG释放内存 
@@ -49,15 +51,7 @@ typedef enum
     FATAL
 }LEVEL_;
 
-static char *strings[] = 
-{
-    "[DEBUG]" , 
-    "[INFO]" , 
-    "[WARNING]" ,
-    "[ERROR]" ,
-    "[SYSCALL]" , 
-    "[FATAL]"
-};
+extern char *strings[]; 
 
 struct debug_union
 {
@@ -164,7 +158,7 @@ extern void binDebugOutput(void * , int );
 //log syscall infomation...
 #define LOG_SYSCALL(format , ...) do{ \
     __LOG_SOMETHING(SYSCALL , 0 , 0 , format , ##__VA_ARGS__); \
-    printDebugInfoWithoutTime(" Reason : %s" , strerror(errno)) \
+    printDebugInfoWithoutTime(" Reason : %s" , strerror(errno)); \
     new_line(); \
 }while(0)
 
@@ -183,7 +177,7 @@ extern void binDebugOutput(void * , int );
 
 //set output type and level when running...
 #define SET_DEBUG_TYPE(_type)    set_output_type(_type)
-#define SET_DEBUG_LEVEL(_level)  set_debug_level(_level);
+#define SET_DEBUG_LEVEL(_level)  set_debug_level(_level)
 
 #endif
 

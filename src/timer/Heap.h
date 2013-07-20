@@ -36,11 +36,15 @@ int insert_to_heap(Heap *hp , UINT64 weight , void *value);
 
 void free_from_heap(Heap *hp , UINT64 weight , void *value);
 
-void modify_on_heap(Heap *hp , UINT64 weight , void *value , UINT64 new_weight);
+void modify_on_heap(Heap *hp , UINT64 weight , void *value , UINT64 new_weight , void *new_value);
+
+void modify_heap_root(Heap *hp , UINT64 new_weight , void *value);
 
 void *get_root_value(Heap *hp);
 
 void *get_and_remove_root(Heap *hp);
+
+void free_heap_root(Heap *hp);
 
 void do_heap_sort(Heap *hp);
 

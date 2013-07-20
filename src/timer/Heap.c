@@ -257,6 +257,7 @@ void adjust_heap_caused_by_modify(Heap *hp , Item *item , UINT64 weight , UINT64
             direction = ADJUST_DOWN;
     }
     
+    item->weight = new_weight;
     adjust_heap(hp , item , direction);
 }
 
@@ -326,12 +327,15 @@ void free_from_heap(Heap *hp , UINT64 weight , void *value)
 
     Item *item = find_value(hp , weight , value);
     if(NULL == item)
+    {
+        LOG_ERROR("Can not find value ...\n");
         return ;
+    }
 
     free_the_value(hp , item);
 }
 
-void modify_on_heap(Heap *hp , UINT64 weight , void *value , UINT64 new_weight)
+void modify_on_heap(Heap *hp , UINT64 weight , void *value , UINT64 new_weight , void *new_value)
 {
     if(NULL == hp)
     {
@@ -344,9 +348,25 @@ void modify_on_heap(Heap *hp , UINT64 weight , void *value , UINT64 new_weight)
 
     Item *item = find_value(hp , weight , value);
     if(NULL == item)
+    {
+        LOG_ERROR("Can not find value ...\n");
         return ;
+    }
     
+    item->value = new_value;
     adjust_heap_caused_by_modify(hp , item , weight , new_weight);
+}
+
+void modify_heap_root(Heap *hp , UINT64 new_weight , void *value)
+{
+    if(NULL == hp)
+    {
+        LOG_ERROR("Cannot modify root on NULL heap ...");
+        return ;
+    }
+    
+    hp->array->value = value;
+    adjust_heap_caused_by_modify(hp , hp->array , hp->array->weight , new_weight);
 }
 
 void *get_root_value(Heap *hp)
@@ -377,6 +397,16 @@ void *get_and_remove_root(Heap *hp)
     free_the_value(hp , hp->array);
 
     return value;
+}
+
+void free_heap_root(Heap *hp)
+{
+    if(NULL == hp)
+    {
+        LOG_ERROR("Cannot free root from a NULL heap ...");
+        return ;
+    }
+    free_the_value(hp , hp->array);
 }
 
 void destory_heap(Heap *hp)
@@ -531,7 +561,7 @@ int main()
     {
         UINT64 new_index = rand() % MAX_VALUE;
         UINT64 index = all_index[rand() % TEST_TIME];
-        modify_on_heap(hp , index , NULL , new_index);
+        modify_on_heap(hp , index , NULL , new_index , NULL);
 
         int ret = check_state(hp);
         if(ret != -1)
