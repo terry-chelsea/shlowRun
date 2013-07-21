@@ -41,12 +41,20 @@ typedef struct timer iTimer;
 
 typedef struct manager Timer;
 
+#define RETURN_NO_MORE_TIMER  do{ \
+    struct timeval val = {0 , 0}; \
+    return val; \
+}while(0)
+
 //create function , return Timer handler or NULL...
 Timer *create_timer_manager(int type);
 
 //add a timer of relative timer relatived to now ... gap is expire...
 //return value is the index of this timer ...
 int add_timer(Timer * , struct timeval expire , Callback cb , void *para);
+
+//add repeated timer like timerfd interval something ...
+int add_periodic_timer(Timer *tr , struct timeval value ,  struct timeval interval , Callback , void *para);
 
 //add a definitely timer , it will expire at expire , if it ahead of now , do timer
 //expire right now ...

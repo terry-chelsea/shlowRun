@@ -35,6 +35,9 @@ struct Para
 static int cur_index = 0;
 struct Para all_infos[NUMS];
 Timer *Tmanager = NULL;
+struct Para special_one;
+struct timeval expiod_value = {4 , 0};
+struct timeval expiod_interval = {1 , 0};
 
 struct timeval all_callback(void *para)
 {
@@ -64,10 +67,32 @@ struct timeval all_callback(void *para)
         return others;
     }
     else 
+        RETURN_NO_MORE_TIMER;
+}
+
+struct timeval special_callback(void *para)
+{
+    struct Para *p = (struct Para *)para;
+    time_t sec = p->set_time.tv_sec + p->expire_time.tv_sec;
+    long micro = p->set_time.tv_usec + p->expire_time.tv_usec;
+    if(micro >= 1000000)
     {
-        struct timeval zero = {0 , 0};
-        return zero;
+        sec ++ ;
+        micro -= 1000000;
     }
+    
+    struct tm tm_value;
+    gmtime_r(&sec , &tm_value);
+    LOG_INFO_TIME("Timer %d should print at %d:%d:%d:%ld ..." , p->index ,
+            tm_value.tm_hour , tm_value.tm_min , tm_value.tm_sec , micro);
+    
+    struct timeval now;
+    gettimeofday(&now , NULL);
+    p->set_time = now;
+    p->expire_time = expiod_interval;
+
+    struct timeval tm = {100 , 0};
+    return tm;
 }
 
 void sig_alrm(int signo)
@@ -110,18 +135,33 @@ int main()
 
     struct timeval now;
     gettimeofday(&now , NULL);
+
+    struct timeval expiod_value = {4 , 0};
+    struct timeval expiod_interval = {1 , 0};
+    int index = add_periodic_timer(Tmanager , expiod_value , expiod_interval , special_callback , &special_one);
+    if(index < 0)
+    {
+        LOG_ERROR("Create periodic timer failed ...");
+        return -1;
+    }
+    special_one.set_time = now;
+    special_one.expire_time = expiod_value;
+    special_one.counter = 0;
+    special_one.index = index;
+    
     struct timeval first = {1 , 0};
     all_infos[cur_index].set_time = now;
     all_infos[cur_index].expire_time = first;
     all_infos[cur_index].counter = INIT_TIMES;
-    int index = add_timer(Tmanager , first , all_callback , (void *)(all_infos + cur_index));
+    index = add_timer(Tmanager , first , all_callback , (void *)(all_infos + cur_index));
     if(index < 0)
     {
         LOG_ERROR("Create new timer failed of index %d ..." , cur_index);
         return -1;
     }
+    all_infos[cur_index].index = index;
     ++cur_index;
-    
+
     alarm(1);
     while(1)
     {

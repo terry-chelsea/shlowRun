@@ -31,6 +31,7 @@ struct timer
     Callback callback;
     void *   data;
     int      index;
+    UINT64   interval;
 };
 
 struct Intmap;
@@ -212,7 +213,7 @@ static int change_itimer_inside(Timer *tr , iTimer *itmr , UINT64 next_expire)
     return 0;
 }
 
-static int add_timer_inside(Timer *tr , UINT64 expire , Callback cb , void *para)
+static int add_timer_inside(Timer *tr , UINT64 expire , Callback cb , void *para , UINT64 interval)
 {
     iTimer *itmr = (iTimer *)calloc(1 , sizeof(iTimer));
     if(NULL == itmr)
@@ -230,6 +231,7 @@ static int add_timer_inside(Timer *tr , UINT64 expire , Callback cb , void *para
     itmr->expire_time = expire + TIMEVAL_TO_WEIGHT(now);
     itmr->callback = cb;
     itmr->data = para;
+    itmr->interval = interval;
 
     int index = intmap_put_value(tr->all_elements , itmr);
     if(index < 0)
@@ -266,7 +268,9 @@ static int add_timer_inside(Timer *tr , UINT64 expire , Callback cb , void *para
 static int do_itimer_expire(Timer *tr , iTimer *itmr)
 {
     struct timeval val = (itmr->callback)(itmr->data);
-    UINT64 next_expire = TIMEVAL_TO_WEIGHT(val);
+    UINT64 next_interval = itmr->interval;
+    UINT64 next_expire = ((next_interval != 0) ? next_interval : TIMEVAL_TO_WEIGHT(val));
+
     if(0 == next_expire)
     {
         free_timer(tr , itmr , NORMAL_REASON);
@@ -321,7 +325,7 @@ int add_timer(Timer * tr , struct timeval expire , Callback cb , void *para)
         return -1;
     }
 
-    return add_timer_inside(tr , TIMEVAL_TO_WEIGHT(expire) , cb , para);
+    return add_timer_inside(tr , TIMEVAL_TO_WEIGHT(expire) , cb , para , 0);
 }
 
 int add_definitely_timer(Timer *tr , time_t expire , Callback cb , void *para)
@@ -346,10 +350,23 @@ int add_definitely_timer(Timer *tr , time_t expire , Callback cb , void *para)
         if(TIMEVAL_TO_WEIGHT(next) == 0)
             return -1;
         else 
-            return add_timer_inside(tr , TIMEVAL_TO_WEIGHT(next) , cb , para);
+            return add_timer_inside(tr , TIMEVAL_TO_WEIGHT(next) , cb , para , 0);
     }
     
-    return add_timer_inside(tr , SECOND_TO_WEIGHT(expire - now) , cb , para);
+    return add_timer_inside(tr , SECOND_TO_WEIGHT(expire - now) , cb , para , 0);
+}
+
+int add_periodic_timer(Timer *tr , struct timeval value ,  struct timeval interval , Callback cb , void *para)
+{
+    CHECK_TIMER_NOT_NULL(tr , 1);
+    
+    if(NULL == cb)
+    {
+        LOG_ERROR("Cannot pass a NULL callback when add timer...");
+        return -1;
+    }
+
+    return add_timer_inside(tr , TIMEVAL_TO_WEIGHT(value) , cb , para , TIMEVAL_TO_WEIGHT(interval));
 }
 
 int change_timer(Timer *tr , int index , struct timeval expire)
@@ -540,6 +557,13 @@ int expire_once(Timer *tr)
         }
         
         struct timeval next_expire = (itmr->callback)(itmr->data);
+        UINT64 next_interval = itmr->interval;
+        if(next_interval != 0)
+        {
+            next_expire.tv_sec = next_interval / 1000000;
+            next_expire.tv_usec = next_interval % 1000000;
+        }
+
         UINT64 next = TIMEVAL_TO_WEIGHT(next_expire);
         //do not alarm again...
         if(0 == next)
