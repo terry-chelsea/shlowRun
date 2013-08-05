@@ -99,6 +99,7 @@ int main()
     change_definitely_timer(timer , index , time(NULL) + 10);
     struct timeval change = {5 , 2000};
     change_timer(timer , index , change);
+    PRINT_NOW("After all modify");
     while(1)
     {
         expire_once(timer);

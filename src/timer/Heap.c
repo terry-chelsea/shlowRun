@@ -18,11 +18,11 @@
 #include <string.h>
 #include "Heap.h"
 
-struct item
+typedef struct item
 {
     UINT64  weight;
     void *  value;
-};
+}Item;
 
 struct heap
 {
@@ -68,12 +68,16 @@ Heap *create_heap(int init_sz , int type)
         init_sz = ALIGN_TO(init_sz);
 
     hp->type = type;
-    Item *items = (Item *)calloc(init_sz , sizeof(Item));
-    if(NULL == items)
+    Item *items = NULL;
+    if(init_sz > 0)
     {
-        LOG_ERROR("Allocate memory for array size %lu failed ..." , init_sz * sizeof(Item));
-        free(hp);
-        return NULL;
+        items = (Item *)calloc(init_sz , sizeof(Item));
+        if(NULL == items)
+        {
+            LOG_ERROR("Allocate memory for array size %lu failed ..." , init_sz * sizeof(Item));
+            free(hp);
+            return NULL;
+        }
     }
     hp->size = init_sz;
     hp->length = 0;
@@ -239,7 +243,7 @@ static Item *find_value(Heap *hp , UINT64 weight , void *value)
         return start;
 }
 
-void adjust_heap_caused_by_modify(Heap *hp , Item *item , UINT64 weight , UINT64 new_weight)
+static void adjust_heap_caused_by_modify(Heap *hp , Item *item , UINT64 weight , UINT64 new_weight)
 {
     int direction = ADJUST_UP;
     if(_MAX_ROOT == hp->type)
@@ -289,6 +293,7 @@ static void free_the_value(Heap *hp , Item *item)
         shrink_heap(hp);
         hp->free_counter = 0;
     }
+    
 }
 
 int insert_to_heap(Heap *hp , UINT64 weight , void *value)
@@ -432,7 +437,7 @@ int get_heap_type(Heap *hp)
     if(hp != NULL)
         return hp->type;
 
-    return -1;
+    return hp->type;
 }
 
 void display_heap(Heap *hp)

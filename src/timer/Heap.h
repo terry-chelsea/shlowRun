@@ -24,8 +24,6 @@
 
 typedef unsigned long long int UINT64;
 
-typedef struct item Item;
-
 typedef struct heap Heap;
 
 Heap *create_heap(int init_sz , int type);
