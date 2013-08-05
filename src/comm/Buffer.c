@@ -38,7 +38,7 @@
 //一段连续的内存中，这将会是得不偿失的，并且这样几段内存的设计还会带来复杂性，所以不如直接使用一段连续的内存。
 //最后的方案是这样的：使用单焕冲的方式，也不再使用循环缓冲区，每次添加只在尾部添加，当尾部的空间不足的时候再尝试移动...
 
-typedef struct 
+typedef struct CBuffer
 {
     unsigned char *buffer;          //array pointer of the buffer , which is a character array...
     unsigned int read_index;        //循环缓冲区的有效数据的起始index，read means read data from this index...
@@ -47,44 +47,11 @@ typedef struct
     unsigned int buffer_size;       //current buffer size...
 }CBuffer;
 
-struct RBuffer
-{
-     CBuffer       read_buffer;    //读缓冲区就是一个单循环缓冲区...
-};
-
-struct Winfo
-{
-    unsigned int  index;
-    unsigned int  id;
-};
-
-struct WBuffer
-{
-    QUEUE      *callback_list;    //this is a queue marks the index which should do callback after write to kernel...
-    NODE       *second_head;
-    unsigned int  current_id;
-    CBuffer    write_buffer;      //this is the real buffer of data to be send...
-};
-
 struct Buffer
 {
-    struct RBuffer rbuffer;
-    struct WBuffer wbuffer;
+    struct CBuffer rbuffer;
+    struct CBuffer wbuffer;
 };
-
-#define CHECK_BUFFER_NOT_NULL_VOID(tr) do{ \
-    if(NULL == (tr)){ \
-        LOG_ERROR("Cannot do %s to a NULL pointer ..." , __func__); \
-        return ; \
-    } \
-}while(0)
-
-#define CHECK_BUFFER_NOT_NULL(tr , type) do{ \
-    if(NULL == (tr)){ \
-        LOG_ERROR("Cannot do %s to a NULL pointer ..." , __func__); \
-        return ((1 == (type)) ? -1 : 0); \
-    } \
-}while(0)
 
 #define INIT_MAX_SIZE 65536      //max size of init...64k...
 #define DEFAULT_MAX_SIZE  65536
@@ -107,7 +74,7 @@ static int real_init_cycle_buffer(CBuffer * buffer)
     if(size == 0)
         size = DEFAULT_INIT_SIZE;
 
-    unsigned char *buf = (unsigned char *)calloc(size);
+    unsigned char *buf = (unsigned char *)calloc(size , 1);
     if(NULL == buf)
     {
         LOG_ERROR("Allocate memory size %d when init cycle buffer error ..." , size);
@@ -135,16 +102,17 @@ static int expand_cycle_buffer(CBuffer *buffer , unsigned int len)
     if(new_size < next_size)
         new_size = next_size;
 
-    unsigned char *new_buf = (unsigned int *)realloc(buffer->buffer , new_size);
+    unsigned char *new_buf = (unsigned char *)realloc(buffer->buffer , new_size);
     if(NULL == new_buf)
     {
         LOG_ERROR("Reallocate memory size %d failed when expand buffer ..." , new_size);
         return -1;
     }
 
-    buffer->buffer = new_size;
+    buffer->buffer = new_buf;
     buffer->buffer_size = new_size;
 
+    buffer->empty_size = (buffer->write_index - buffer->read_index + new_size) % new_size;
     return 0;
 }
 
@@ -161,10 +129,9 @@ static int copy_to_cycle_buffer(CBuffer *buffer , unsigned char *buf , unsigned 
         LOG_WARNING("Do append buffer failed when copy to buffer ...");
         return -1;
     }
-    buffer->empty_size = new_size - (buffer->write_index - buffer->read_index);
 
     unsigned char *head = buffer->buffer;
-    unsigned int  last_size = buffer->buffer_size - writeindex;
+    unsigned int  last_size = buffer->buffer_size - buffer->write_index;
     if(last_size < len)
     {
         unsigned int read_index = buffer->read_index;
@@ -180,7 +147,7 @@ static int copy_to_cycle_buffer(CBuffer *buffer , unsigned char *buf , unsigned 
     buffer->write_index += len;
     buffer->empty_size -= len;
 
-    return ret;
+    return 0;
 }
 
 //create a buffer , but do not allocate any real buffer memory , include the list...
@@ -203,27 +170,19 @@ Buffer *create_buffer(int read_size , int write_size)
         return NULL;
     }
     
-    WBuffer *wbuf = &(WBuffer->wbuffer);
-    wbuf->callback_list = NULL;
-    wbuf->second_head = NULL;
-    wbuf->current_id = START_ID;
-    
-    init_cycle_buffer(&(buf->rbuffer.read_buffer) , init_read_size);
-    init_cycle_buffer(&(buf->wbuffer.write_buffer) , init_write_size);
+    init_cycle_buffer(&(buf->rbuffer) , init_read_size);
+    init_cycle_buffer(&(buf->wbuffer) , init_write_size);
 
     return buf;
 }
 
 //copy data to read buffer , return 0 means everything is OK , return -1 means error happened...
-int move_stack_to_read_buffer(Buffer *buf , unsigned char *stack , unsigned int size)
+int copy_to_read_buffer(Buffer *buf , unsigned char *stack , unsigned int size)
 {
-    CHECK_BUFFER_NOT_NULL(buf);
-    
     if(NULL == stack || 0 == size)
         return ;
 
-    RBuffer *rbuf = &(buf->rbuffer);
-    CBuffer *in_buffer = &(rbuf->read_buffer);
+    CBuffer *in_buffer = &(buf->rbuffer);
     
     return copy_to_cycle_buffer(in_buffer , stack , size);
 }
@@ -232,7 +191,7 @@ void moveout_read_buffer(Buffer *buf , int len)
 {
     CHECK_BUFFER_NOT_NULL_VOID(buf);
 
-    CBuffer *buffer = &(buf->rbuffer.read_buffer);
+    CBuffer *buffer = &(buf->rbuffer);
     buffer->read_index += len;
     buffer->empty_size += len;
     if(buffer->read_index == buffer->write_index)
@@ -244,25 +203,23 @@ void moveout_read_buffer(Buffer *buf , int len)
 
 int decrease_read_buffer(Buffer *buf , int new_size)
 {
-    CHECK_BUFFER_NOT_NULL(buf);
-    
-    CBuffer *buffer = &(buf->rbuffer.read_buffer);
-    if(buffer->buffer_size < new_size)
+    CBuffer *buffer = &(buf->rbuffer);
+    if(NULL == buffer || buffer->buffer_size < new_size)
         return 0;
 
+    unsigned char *head = buffer->buffer;
     unsigned int cur_size = buffer->write_index - buffer->read_index;
     if(cur_size > new_size || new_size < buffer->write_index)
     {
-        unsigned char *head = buffer->buffer;
-        memmove(hread , head + buffer->read_index , cur_size);
-        head->read_index = 0;
-        head->write_index -= cur_size;
+        memmove(head , head + buffer->read_index , cur_size);
+        buffer->read_index = 0;
+        buffer->write_index -= cur_size;
         if(new_size < cur_size)
             new_size = ALIGN_TO_KB(cur_size);
     }
     
     new_size = ALIGN_TO_KB(new_size);
-    unsigned char *new_buf = (unsigned char *)calloc(new_size);
+    unsigned char *new_buf = (unsigned char *)realloc(head , new_size);
     if(NULL == new_buf)
     {
         LOG_ERROR("Reallocate memory size %d failed when decrease buffer ..." , new_size);
@@ -278,29 +235,75 @@ int decrease_read_buffer(Buffer *buf , int new_size)
 
 unsigned int get_current_read_buffer_size(Buffer *buf)
 {
-    CHECK_BUFFER_NOT_NULL(buf);
-    return buf->rbuf.read_buffer.buffer_size;
+    return buf->rbuffer.buffer_size;
 }
 
-unsigned int get_current_read_buffer(Buffer *buf)
+unsigned char *get_current_read_buffer(Buffer *buf)
 {
-    CHECK_BUFFER_NOT_NULL(buf);
-
-    CBuffer *buffer = &(buf->rbuffer.read_buffer);
+    CBuffer *buffer = &(buf->rbuffer);
     return (buffer->buffer + buffer->read_index);
 }
 
 unsigned int get_current_read_buffer_length(Buffer *buf)
 {
-    CHECK_BUFFER_NOT_NULL(buf);
-
-    CBuffer *buffer = &(buf->rbuffer.read_buffer);
+    CBuffer *buffer = &(buf->rbuffer);
     return (buffer->write_index - buffer->read_index);
 }
 
-
 static int write_data_to_cycle_buffer(CBuffer *buffer , void *from , unsigned int len)
 {
+    unsigned int readindex = buffer->read_index;
+    unsigned int writeindex = buffer->write_index;
+    unsigned int cur_size = buffer->buffer_size;
+
+    if(NULL == buffer->buffer && real_init_cycle_buffer(buffer) < 0)
+    {
+        LOG_WARNING("Do real init buffer failed when copy to write buffer ...");
+        return -1;
+    }
+
+    if(buffer->empty_size < len && expand_cycle_buffer(buffer , len) < 0)
+    {
+        LOG_ERROR("expand buffer failed when write to buffer ...");
+        return -1;
+    }
+    
+    unsigned int new_size = buffer->buffer_size;
+    if(writeindex <= readindex)
+    {
+        unsigned int expand_size = new_size - cur_size;
+        if(expand_size >= writeindex)
+        {
+            memcpy(buffer->buffer + cur_size , buffer->buffer , writeindex);
+            buffer->write_index = (writeindex + cur_size) % new_size;
+        }
+        else 
+        {
+            memcpy(buffer->buffer + cur_size , buffer->buffer , expand_size);
+            memmove(buffer->buffer , buffer->buffer + expand_size , writeindex - expand_size);
+
+            buffer->write_index -= expand_size;
+        }
+    }
+    
+    int ret = 0; 
+    writeindex = buffer->write_index;
+    unsigned int last_size = new_size - writeindex;
+    if(last_size >= len)
+    {
+        memcpy(buffer->buffer + writeindex , from , len);
+        buffer->write_index = (len + writeindex) % new_size;
+    }
+    else 
+    {
+        unsigned int gap = len - last_size;
+        memcpy(buffer->buffer + writeindex , from , last_size);
+        memcpy(buffer->buffer , from + last_size , gap);
+        buffer->write_index = gap;
+        ret = 1;
+    }
+
+    return ret;
 }
 
 //write some data to write buffer ...
@@ -308,70 +311,59 @@ static int write_data_to_cycle_buffer(CBuffer *buffer , void *from , unsigned in
 //flag = 1 means it will do callback after those data write to kernel ...
 int write_data_to_buffer(Buffer *buf , void *from , unsigned int len , int flag)
 {
-    CHECK_BUFFER_NOT_NULL(buf);
-    CBuffer *buffer = &(buf->wbuffer.write_buffer);
-    
-    struct Winfo *info = (struct Winfo *)malloc(sizeof(*info));
-    if(NULL == info)
-    {
-        LOG_ERROR("Allocate memory size %d failed when write to buffer ..." , 
-                sizeof(*info));
-        return -1;
-    }
-    if(flag)
-        list_put(buf->wbuffer.callback_list , info);
-
-    if(write_data_to_cycle_buffer(buffer , from , len) < 0)
+    CBuffer *buffer = &(buf->wbuffer);
+   
+    int ret = write_data_to_cycle_buffer(buffer , from , len);
+    if(ret < 0)
     {
         LOG_ERROR("write data of len %d to cycle buffer failed ..." , len);
-        free(info);
         return -1;
     }
+    return ret;
+}
 
-    info->index = buffer->write_index - 1;
-    info->id = buf->wbuffer.current_id;
+void get_from_write_buffer(Buffer *buf , int len)
+{
+    CHECK_BUFFER_NOT_NULL_VOID(buf);
 
+    CBuffer *wbuf = &(buf->wbuffer);
 
-    unsigned int cur_size = buffer->buffer_size;
-    if(buffer->empty_size < len && expand_cycle_buffer(buffer , len) < 0)
+    unsigned int rindex = wbuf->read_index;
+    unsigned int windex = wbuf->write_index;
+    unsigned int tail_size = wbuf->buffer_size - rindex;
+    if(windex <= rindex && tail_size < len)
     {
-        LOG_ERROR("expand buffer failed when write to buffer ...");
-        return -1;
-    }
-
-    if(buffer->write_index <= buffer->read_index)
-    {
-        unsigned int expand_size = buffer->buffer_size - cur_size;
-        if(expand_size >= buffer->write_size)
-        {
-            memcpy(buffer->buffer + cur_size , buffer->buffer , buffer->write_size);
-            buffer->write_index += cur_size;
-        }
-        else 
-        {
-            memcpy(buffer->buffer + cur_size , buffer->buffer , expand_size);
-            memmove(buffer->buffer , buffer->buffer + expand_size , buffer->write_size - expand_size);
-
-            buffer->write_index -= expand_size;
-        }
-    }
-    
-    unsigned int last_size = buffer->buffer_size - buffer->write_index;
-    if(last_size >= len)
-    {
-        memcpy(buffer->buffer + buffer->write_index , from , len);
-        buffer->write_index += len;
-        if(buffer->write_index == buffer->buffer_size)
-            buffer->write_index = 0;
+        wbuf->write_index -= (len - tail_size);
+        wbuf->read_index = 0;
     }
     else 
     {
-        unsigned int gap = len - last_size;
-        memcpy(buffer->buffer + buffer->write_index , from , last_size);
-        memcpy(buffer->buffer , from + last_size , gap);
-        buffer->write_index = gap;
+        wbuf->read_index += len;
     }
-    
+
+    wbuf->empty_size -= len;
 }
 
-int get_
+void get_writeable_pointer(Buffer *buf , unsigned char **first , unsigned int *first_len , unsigned char **second , unsigned int *second_len)
+{
+    CHECK_BUFFER_NOT_NULL_VOID(buf);
+
+    CBuffer *wbuf = &(buf->wbuffer);
+    unsigned int rindex = wbuf->read_index;
+    unsigned int windex = wbuf->write_index;
+    *first = wbuf->buffer + rindex;
+    if(windex <= rindex)
+    {
+        *first_len = wbuf->buffer_size - rindex;
+        *second = wbuf->buffer;
+        *second_len = windex;
+    }
+    else 
+    {
+        *first_len = windex - rindex;
+        *second = NULL;
+        *second_len = 0;
+    }
+}
+
+

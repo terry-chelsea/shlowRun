@@ -18,39 +18,25 @@
 
 typedef struct Buffer Buffer;
 
-typedef struct 
-{
-    unsigned char *buffer;          //array pointer of the buffer , which is a character array...
-    unsigned int max_size;          //循环缓冲区的存储上限，对于读缓冲区，超出改上限将取消读操作，对于写操作，超出上限，返回调用者-1...
-    unsigned int read_index;        //循环缓冲区的有效数据的起始index，read means read data from this index...
-    unsigned int write_index;       //first unused index in this buffer , write means write data to this buffer started from this index...
-    unsigned int empty_size;        //unused size , include head empty size and tail empty size , equals to (buffer_size + write_index - read_index) % buffer_size ...
-    unsigned int buffer_size;       //current buffer size...
-}CBuffer;
+extern Buffer *create_buffer(int read_size , int write_size);
 
-struct RBuffer
-{
-     CBuffer       read_buffer;    //读缓冲区就是一个单循环缓冲区...
-};
+extern int copy_to_read_buffer(Buffer *buf , unsigned char *stack , unsigned int size);
 
-struct Winfo
-{
-    unsigned int  index;
-    unsigned int  id;
-};
+extern void moveout_read_buffer(Buffer *buf , int len);
 
-struct WBuffer
-{
-    QUEUE      *callback_list;    //this is a queue marks the index which should do callback after write to kernel...
-    NODE       *second_head;
-    unsigned int  current_id;
-    CBuffer    write_buffer;      //this is the real buffer of data to be send...
-};
+extern int decrease_read_buffer(Buffer *buf , int new_size);
 
-struct Buffer
-{
-    struct RBuffer rbuffer;
-    struct WBuffer wbuffer;
-};
+extern unsigned int get_current_read_buffer_size(Buffer *buf);
+
+extern unsigned char *get_current_read_buffer(Buffer *buf);
+
+extern unsigned int get_current_read_buffer_length(Buffer *buf);
+
+
+extern int write_data_to_buffer(Buffer *buf , void *from , unsigned int len , int flag);
+
+extern void get_from_write_buffer(Buffer *buf , int len);
+
+extern void get_writeable_pointer(Buffer *buf , unsigned char **first , unsigned int *first_len , unsigned char **second , unsigned int *second_len);
 
 #endif
